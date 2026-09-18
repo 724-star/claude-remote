@@ -1,0 +1,975 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<meta name="theme-color" content="#0f0f0f">
+<title>Claude 远程控制</title>
+<style>
+  /* ═══════════════════ Reset & Base ═══════════════════ */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0f0f0f;
+    --surface: #1a1a2e;
+    --surface2: #16213e;
+    --border: #2a2a4a;
+    --text: #e8e8f0;
+    --text2: #9898b0;
+    --accent: #6c63ff;
+    --accent2: #4834d4;
+    --success: #00b894;
+    --error: #ff6b6b;
+    --warning: #fdcb6e;
+    --radius: 12px;
+    --radius-sm: 8px;
+  }
+  html, body {
+    height: 100%; width: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    overflow: hidden;
+    -webkit-tap-highlight-color: transparent;
+  }
+  input, textarea, button { font-family: inherit; }
+
+  /* ═══════════════════ Layout ═══════════════════ */
+  #app {
+    display: flex; flex-direction: column;
+    height: 100vh; height: 100dvh;
+    max-width: 600px; margin: 0 auto;
+    position: relative;
+  }
+
+  /* ═══ Header ═══ */
+  .header {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 14px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    flex-shrink: 0;
+    min-height: 52px;
+  }
+  .header .logo {
+    font-size: 20px; font-weight: 700;
+    background: linear-gradient(135deg, var(--accent), #a29bfe);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    flex-shrink: 0;
+  }
+  .header .status-group {
+    display: flex; align-items: center; gap: 6px;
+    margin-left: auto;
+    font-size: 12px; color: var(--text2);
+  }
+  .status-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #555; flex-shrink: 0;
+    transition: background 0.3s;
+  }
+  .status-dot.connected { background: var(--success); box-shadow: 0 0 6px #00b89466; }
+  .status-dot.disconnected { background: var(--error); }
+  .status-dot.connecting { background: var(--warning); animation: pulse 1s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  .model-badge {
+    font-size: 10px; padding: 2px 8px;
+    background: var(--surface2); border: 1px solid var(--border);
+    border-radius: 20px; color: var(--text2);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    max-width: 140px; cursor: pointer;
+  }
+  .header-actions { display: flex; gap: 6px; align-items: center; }
+  .icon-btn {
+    background: none; border: none; color: var(--text2);
+    font-size: 18px; cursor: pointer; padding: 6px;
+    border-radius: 8px; line-height: 1;
+    transition: background 0.2s, color 0.2s;
+  }
+  .icon-btn:active { background: var(--surface2); color: var(--text); }
+
+  /* ═══ Token Screen ═══ */
+  .token-screen {
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    flex: 1; padding: 24px; text-align: center;
+    gap: 20px;
+  }
+  .token-screen h2 { font-size: 22px; font-weight: 600; }
+  .token-screen p { color: var(--text2); font-size: 14px; line-height: 1.5; }
+  .token-input-group {
+    display: flex; flex-direction: column; gap: 12px;
+    width: 100%; max-width: 320px;
+  }
+  .token-input-group input {
+    padding: 14px 16px; border-radius: var(--radius);
+    border: 1px solid var(--border); background: var(--surface);
+    color: var(--text); font-size: 16px; text-align: center;
+    outline: none; transition: border 0.2s;
+  }
+  .token-input-group input:focus { border-color: var(--accent); }
+  .token-input-group input::placeholder { color: var(--text2); }
+  .btn {
+    padding: 14px 24px; border: none; border-radius: var(--radius);
+    font-size: 16px; font-weight: 600; cursor: pointer;
+    transition: transform 0.15s, opacity 0.2s;
+    -webkit-user-select: none; user-select: none;
+  }
+  .btn:active { transform: scale(0.97); }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { opacity: 0.9; }
+  .btn-danger { background: var(--error); color: #fff; }
+  .btn-outline {
+    background: transparent; border: 1px solid var(--border);
+    color: var(--text2); font-size: 13px; padding: 8px 14px;
+  }
+  .btn-sm { padding: 8px 16px; font-size: 13px; border-radius: var(--radius-sm); }
+
+  /* ═══ Main Chat Area ═══ */
+  .chat-area {
+    flex: 1; overflow-y: auto; padding: 12px 14px;
+    display: flex; flex-direction: column; gap: 8px;
+    scroll-behavior: smooth;
+  }
+  .chat-area::-webkit-scrollbar { width: 3px; }
+  .chat-area::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* ═══ Message Bubbles ═══ */
+  .msg {
+    display: flex; flex-direction: column; gap: 4px;
+    animation: msgIn 0.2s ease;
+  }
+  @keyframes msgIn { from{opacity:0;transform:translateY(8px)} to{opacity:1;transform:none} }
+  .msg-user {
+    align-items: flex-end;
+  }
+  .msg-user .bubble {
+    background: var(--accent); color: #fff;
+    border-radius: 16px 16px 4px 16px;
+    padding: 10px 14px; max-width: 85%;
+    font-size: 14px; line-height: 1.4;
+    word-break: break-word;
+  }
+  .msg-user .meta {
+    font-size: 11px; color: var(--text2);
+    padding-right: 4px;
+  }
+  .msg-agent {
+    align-items: flex-start;
+  }
+  .msg-agent .bubble {
+    background: var(--surface); color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 16px 16px 16px 4px;
+    padding: 12px 14px; max-width: 92%;
+    font-size: 14px; line-height: 1.6;
+    white-space: pre-wrap; word-break: break-word;
+    overflow-x: auto;
+  }
+  .msg-agent .bubble p { margin: 6px 0; }
+  .msg-agent .bubble code {
+    background: var(--bg); padding: 1px 5px;
+    border-radius: 4px; font-size: 13px;
+  }
+  .msg-agent .bubble pre {
+    background: var(--bg); padding: 12px;
+    border-radius: 8px; overflow-x: auto;
+    margin: 8px 0; font-size: 13px;
+    border: 1px solid var(--border);
+  }
+  .msg-agent .bubble pre code { background: none; padding: 0; }
+  .msg-agent .meta {
+    font-size: 11px; color: var(--text2);
+    padding-left: 4px; display: flex; gap: 8px; align-items: center;
+  }
+  .msg-agent .meta .rerun-btn {
+    background: none; border: none; color: var(--text2);
+    font-size: 11px; cursor: pointer; text-decoration: underline;
+    padding: 0;
+  }
+  .msg-agent .meta .rerun-btn:active { color: var(--accent); }
+
+  /* System messages */
+  .msg-system {
+    align-items: center;
+  }
+  .msg-system .bubble {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: 8px 14px; max-width: 90%;
+    font-size: 12px; color: var(--text2);
+    text-align: center; line-height: 1.4;
+  }
+  .msg-system .bubble.error { border-color: var(--error); color: var(--error); }
+  .msg-system .bubble.success { border-color: var(--success); color: var(--success); }
+
+  /* ═══ Thinking Indicator ═══ */
+  .thinking {
+    display: flex; align-items: center; gap: 6px;
+    padding: 8px 14px; color: var(--text2); font-size: 13px;
+  }
+  .thinking .dots { display: flex; gap: 4px; }
+  .thinking .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--text2); animation: dotBounce 1.4s ease infinite;
+  }
+  .thinking .dot:nth-child(2) { animation-delay: 0.2s; }
+  .thinking .dot:nth-child(3) { animation-delay: 0.4s; }
+  @keyframes dotBounce {
+    0%,80%,100%{transform:scale(0.6);opacity:0.4}
+    40%{transform:scale(1);opacity:1}
+  }
+
+  /* ═══ Input Area ═══ */
+  .input-area {
+    display: flex; gap: 8px; padding: 10px 14px;
+    background: var(--surface); border-top: 1px solid var(--border);
+    flex-shrink: 0; align-items: flex-end;
+  }
+  .input-area textarea {
+    flex: 1; resize: none;
+    padding: 12px 14px; border-radius: var(--radius);
+    border: 1px solid var(--border); background: var(--surface2);
+    color: var(--text); font-size: 15px; line-height: 1.4;
+    outline: none; min-height: 44px; max-height: 120px;
+    transition: border 0.2s;
+  }
+  .input-area textarea:focus { border-color: var(--accent); }
+  .input-area textarea::placeholder { color: var(--text2); }
+  .input-area .send-btn {
+    width: 44px; height: 44px; flex-shrink: 0;
+    border: none; border-radius: var(--radius);
+    background: var(--accent); color: #fff;
+    font-size: 20px; cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.2s, transform 0.15s;
+  }
+  .input-area .send-btn:active { transform: scale(0.9); }
+  .input-area .send-btn:disabled { background: var(--border); cursor: not-allowed; }
+  .input-area .send-btn.cancel-btn { background: var(--error); }
+
+  /* ═══ History Drawer ═══ */
+  .drawer-overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,0.6);
+    z-index: 100; opacity: 0; pointer-events: none;
+    transition: opacity 0.3s;
+  }
+  .drawer-overlay.open { opacity: 1; pointer-events: auto; }
+  .drawer {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    max-height: 75vh; background: var(--surface);
+    border-radius: 20px 20px 0 0;
+    z-index: 101; transform: translateY(100%);
+    transition: transform 0.3s ease;
+    display: flex; flex-direction: column;
+    box-shadow: 0 -4px 30px rgba(0,0,0,0.5);
+  }
+  .drawer.open { transform: translateY(0); }
+  .drawer-handle {
+    width: 36px; height: 4px; border-radius: 2px;
+    background: var(--border); margin: 10px auto 0;
+  }
+  .drawer-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 12px 18px 8px;
+    border-bottom: 1px solid var(--border);
+  }
+  .drawer-header h3 { font-size: 16px; }
+  .drawer-header .clear-btn {
+    background: none; border: none; color: var(--error);
+    font-size: 12px; cursor: pointer; padding: 4px 8px;
+  }
+  .drawer-body {
+    flex: 1; overflow-y: auto; padding: 8px 0;
+  }
+  .history-item {
+    display: flex; gap: 10px; padding: 12px 18px;
+    border-bottom: 1px solid var(--border); cursor: pointer;
+    transition: background 0.15s;
+  }
+  .history-item:active { background: var(--surface2); }
+  .history-item .h-status {
+    width: 8px; height: 8px; border-radius: 50%;
+    flex-shrink: 0; margin-top: 6px;
+  }
+  .history-item .h-status.completed { background: var(--success); }
+  .history-item .h-status.failed { background: var(--error); }
+  .history-item .h-status.cancelled { background: var(--warning); }
+  .history-item .h-info { flex: 1; min-width: 0; }
+  .history-item .h-prompt {
+    font-size: 14px; color: var(--text);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .history-item .h-meta {
+    font-size: 11px; color: var(--text2); margin-top: 2px;
+  }
+  .history-item .h-rerun {
+    background: none; border: 1px solid var(--border);
+    color: var(--accent); border-radius: 6px;
+    padding: 4px 10px; font-size: 12px; cursor: pointer;
+    white-space: nowrap; align-self: center;
+  }
+
+  /* ═══ Toast ═══ */
+  .toast {
+    position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+    background: var(--surface); border: 1px solid var(--border);
+    color: var(--text); padding: 10px 20px; border-radius: var(--radius);
+    font-size: 13px; z-index: 200;
+    opacity: 0; transition: opacity 0.3s, transform 0.3s;
+    pointer-events: none;
+    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  }
+  .toast.show { opacity: 1; pointer-events: auto; }
+
+  /* ═══ Empty state ═══ */
+  .empty-state {
+    flex: 1; display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    color: var(--text2); gap: 12px; padding: 40px 20px;
+    text-align: center;
+  }
+  .empty-state .icon { font-size: 48px; opacity: 0.5; }
+  .empty-state h3 { font-size: 18px; color: var(--text); }
+  .empty-state p { font-size: 13px; line-height: 1.5; max-width: 280px; }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <!-- ═══ Header ═══ -->
+  <div class="header">
+    <div class="logo">Claude ⌘</div>
+    <div class="status-group">
+      <div class="status-dot disconnected" id="statusDot"></div>
+      <span id="statusText">未连接</span>
+    </div>
+    <span class="model-badge" id="modelBadge" onclick="showModelDialog()" title="点击切换模型">
+      deepseek-v4-flash
+    </span>
+    <div class="header-actions">
+      <button class="icon-btn" onclick="toggleHistory()" title="历史记录">📋</button>
+      <button class="icon-btn" onclick="clearOutput()" title="清空输出">🗑️</button>
+    </div>
+  </div>
+
+  <!-- ═══ Token Screen ═══ -->
+  <div id="tokenScreen" class="token-screen">
+    <div class="icon" style="font-size:64px;opacity:0.6">🔐</div>
+    <h2>连接 Claude 远程服务</h2>
+    <p>输入服务器提供的认证 Token<br>即可远程操控本机 Claude Code</p>
+    <div class="token-input-group">
+      <input type="text" id="tokenInput" placeholder="输入 Token..." autocomplete="off"
+             onkeydown="if(event.key==='Enter') connectWS()">
+      <button class="btn btn-primary" onclick="connectWS()">连接</button>
+    </div>
+    <p style="font-size:12px;color:var(--text2)">
+      也可在 URL 后加 ?token=xxx 自动连接
+    </p>
+  </div>
+
+  <!-- ═══ Chat Area ═══ -->
+  <div id="chatArea" class="chat-area" style="display:none">
+    <div id="emptyState" class="empty-state">
+      <div class="icon">🤖</div>
+      <h3>Claude Code 远程控制</h3>
+      <p>在下方输入任务指令，Claude Code 会实时执行并显示结果。
+      <br>支持 /model, /help, /history 等命令。</p>
+    </div>
+  </div>
+
+  <!-- ═══ Input Area ═══ -->
+  <div id="inputArea" class="input-area" style="display:none">
+    <textarea id="promptInput" rows="1" placeholder="输入任务指令，回车发送…"
+              onkeydown="handleInputKeydown(event)"
+              oninput="autoResizeInput()"></textarea>
+    <button class="send-btn" id="sendBtn" onclick="sendPrompt()">➤</button>
+  </div>
+</div>
+
+<!-- ═══ History Drawer ═══ -->
+<div class="drawer-overlay" id="drawerOverlay" onclick="toggleHistory()"></div>
+<div class="drawer" id="drawer">
+  <div class="drawer-handle"></div>
+  <div class="drawer-header">
+    <h3>📋 任务历史</h3>
+    <button class="clear-btn" onclick="clearHistory()">清空全部</button>
+  </div>
+  <div class="drawer-body" id="historyList">
+    <p style="text-align:center;color:var(--text2);padding:40px;font-size:13px">暂无历史记录</p>
+  </div>
+</div>
+
+<!-- ═══ Model Dialog ═══ -->
+<div class="drawer-overlay" id="modelOverlay" onclick="closeModelDialog()"></div>
+<div class="drawer" id="modelDrawer" style="z-index:102">
+  <div class="drawer-handle"></div>
+  <div class="drawer-header">
+    <h3>🤖 切换 Claude 模型</h3>
+    <button class="icon-btn" onclick="closeModelDialog()">✕</button>
+  </div>
+  <div class="drawer-body" style="padding:12px 18px">
+    <div style="display:flex;flex-direction:column;gap:8px" id="modelList">
+      <p style="color:var(--text2);font-size:13px;margin-bottom:8px">点击模型名称立即切换：</p>
+      <!-- populated by JS -->
+    </div>
+  </div>
+</div>
+
+<!-- ═══ Toast ═══ -->
+<div class="toast" id="toast"></div>
+
+<script>
+/* ════════════════════════════════════════════════════════════
+   Claude 远程控制 - 前端 JavaScript
+   ════════════════════════════════════════════════════════════ */
+
+// ── 配置 ──────────────────────────────────────────────────
+const AVAILABLE_MODELS = [
+  "deepseek-v4-flash",
+  "claude-sonnet-4-6",
+  "claude-opus-4-8",
+  "claude-haiku-4-5-20251001",
+  "claude-fable-5",
+];
+
+let ws = null;
+let connected = false;
+let currentTaskId = null;
+let isRunning = false;
+let historyTasks = [];
+let reconnectTimer = null;
+let heartbeatInterval = null;
+let TOKEN = "";
+
+// ── DOM 引用 ──────────────────────────────────────────────
+const $ = id => document.getElementById(id);
+const chatArea = $("chatArea");
+const inputArea = $("inputArea");
+const tokenScreen = $("tokenScreen");
+const promptInput = $("promptInput");
+const sendBtn = $("sendBtn");
+const statusDot = $("statusDot");
+const statusText = $("statusText");
+const modelBadge = $("modelBadge");
+const emptyState = $("emptyState");
+const historyList = $("historyList");
+
+// ── 自动连接 ──────────────────────────────────────────────
+(function init() {
+  // 从 URL 参数获取 token
+  const params = new URLSearchParams(window.location.search);
+  const urlToken = params.get("token");
+  if (urlToken) {
+    TOKEN = urlToken;
+    $("tokenInput").value = urlToken;
+    // 自动连接
+    setTimeout(connectWS, 300);
+  }
+
+  // 初始化模型列表
+  renderModelList();
+  loadHistory();
+})();
+
+// ── WebSocket 连接 ───────────────────────────────────────
+function getWSURL() {
+  const token = $("tokenInput").value.trim() || TOKEN;
+  TOKEN = token;
+  const proto = window.location.protocol === "https:" ? "wss:" : "ws:";
+  const host = window.location.host;
+  return `${proto}//${host}/ws?token=${encodeURIComponent(token)}`;
+}
+
+function connectWS() {
+  const token = $("tokenInput").value.trim();
+  if (!token) {
+    showToast("请输入 Token");
+    return;
+  }
+  TOKEN = token;
+  setStatus("connecting", "连接中...");
+
+  if (ws) {
+    ws.onclose = null;
+    ws.onerror = null;
+    if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+      ws.close();
+    }
+  }
+
+  try {
+    ws = new WebSocket(getWSURL());
+  } catch (e) {
+    setStatus("disconnected", "连接失败");
+    showToast("WebSocket 连接失败: " + e.message);
+    return;
+  }
+
+  ws.onopen = function() {
+    setStatus("connected", "已连接");
+    tokenScreen.style.display = "none";
+    chatArea.style.display = "flex";
+    inputArea.style.display = "flex";
+    showToast("✅ 已连接到 Claude 服务");
+
+    // 心跳
+    if (heartbeatInterval) clearInterval(heartbeatInterval);
+    heartbeatInterval = setInterval(() => {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({type: "ping"}));
+      }
+    }, 25000);
+
+    loadHistory();
+  };
+
+  ws.onmessage = function(event) {
+    try {
+      const msg = JSON.parse(event.data);
+      handleMessage(msg);
+    } catch (e) {
+      console.warn("消息解析失败:", e);
+    }
+  };
+
+  ws.onclose = function(event) {
+    setStatus("disconnected", "未连接");
+    if (event.code === 4001) {
+      showToast("❌ Token 无效，请检查");
+      tokenScreen.style.display = "flex";
+      chatArea.style.display = "none";
+      inputArea.style.display = "none";
+      return;
+    }
+    connected = false;
+    showToast("连接已断开，10秒后重连...");
+
+    // 自动重连
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    reconnectTimer = setTimeout(() => {
+      if (tokenScreen.style.display !== "none") return;
+      connectWS();
+    }, 10000);
+  };
+
+  ws.onerror = function() {
+    setStatus("disconnected", "连接错误");
+  };
+}
+
+function disconnectWS() {
+  if (heartbeatInterval) clearInterval(heartbeatInterval);
+  if (reconnectTimer) clearTimeout(reconnectTimer);
+  if (ws) {
+    ws.onclose = null;
+    ws.close();
+    ws = null;
+  }
+  setStatus("disconnected", "已断开");
+  showToast("已断开连接");
+}
+
+// ── 状态管理 ──────────────────────────────────────────────
+function setStatus(state, text) {
+  statusDot.className = "status-dot " + state;
+  statusText.textContent = text;
+  connected = state === "connected";
+
+  if (state === "connected") {
+    sendBtn.disabled = false;
+    promptInput.disabled = false;
+    promptInput.placeholder = "输入任务指令，回车发送…";
+  } else if (state === "connecting") {
+    sendBtn.disabled = true;
+    promptInput.disabled = true;
+    promptInput.placeholder = "连接中...";
+  } else {
+    sendBtn.disabled = true;
+    promptInput.disabled = true;
+    promptInput.placeholder = "未连接，请先输入 Token";
+  }
+}
+
+// ── 消息处理 ──────────────────────────────────────────────
+function handleMessage(msg) {
+  switch (msg.type) {
+    case "status":
+      handleStatus(msg);
+      break;
+    case "output":
+      handleOutput(msg);
+      break;
+    case "error":
+      handleError(msg);
+      break;
+    case "task_start":
+      handleTaskStart(msg);
+      break;
+    case "task_end":
+      handleTaskEnd(msg);
+      break;
+    case "history":
+      handleHistory(msg);
+      break;
+    case "pong":
+      break;
+    default:
+      console.log("未知消息:", msg);
+  }
+}
+
+function handleStatus(msg) {
+  if (msg.data === "connected") {
+    setStatus("connected", "已连接");
+    if (msg.model) modelBadge.textContent = msg.model;
+  } else if (msg.data === "running") {
+    isRunning = true;
+    updateSendBtn(true);
+  } else if (msg.data === "idle") {
+    isRunning = false;
+    updateSendBtn(false);
+  } else if (msg.data === "cancelling") {
+    addSystemMsg("⏹️ 正在取消任务...");
+  }
+  // 其他状态消息作为系统消息显示
+  if (msg.message) {
+    addSystemMsg(msg.message);
+  }
+}
+
+function handleTaskStart(msg) {
+  const data = msg.data;
+  currentTaskId = data.id;
+  isRunning = true;
+  updateSendBtn(true);
+
+  // 隐藏空状态
+  emptyState.style.display = "none";
+
+  // 添加用户消息气泡
+  addUserBubble(data.prompt, data.created_at);
+}
+
+function handleOutput(msg) {
+  // 找到最后一个 agent 消息气泡，追加内容
+  const msgs = chatArea.querySelectorAll(".msg-agent");
+  let bubble;
+  if (msgs.length > 0) {
+    const lastMsg = msgs[msgs.length - 1];
+    bubble = lastMsg.querySelector(".bubble");
+    if (bubble.dataset.taskId !== currentTaskId) {
+      bubble = null;
+    }
+  }
+
+  if (!bubble) {
+    // 创建新的 agent 消息
+    const div = document.createElement("div");
+    div.className = "msg msg-agent";
+    const meta = document.createElement("div");
+    meta.className = "meta";
+    meta.innerHTML = '<span>🤖 Claude</span>';
+    const b = document.createElement("div");
+    b.className = "bubble";
+    b.dataset.taskId = currentTaskId || "";
+    b.textContent = "";
+    div.appendChild(b);
+    div.appendChild(meta);
+    // 移除 thinking indicator
+    const thinking = chatArea.querySelector(".thinking");
+    if (thinking) thinking.remove();
+    chatArea.appendChild(div);
+    bubble = b;
+  }
+
+  // 追加内容
+  const text = msg.data;
+  if (bubble.textContent === "") {
+    bubble.textContent = text;
+  } else {
+    bubble.textContent += "\n" + text;
+  }
+
+  // 自动滚动
+  chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+function handleError(msg) {
+  addSystemMsg("❌ " + msg.data, "error");
+  chatArea.scrollTop = chatArea.scrollHeight;
+
+  // 如果包含 token 相关的错误，回到 token 页
+  if (msg.data && (msg.data.includes("Token") || msg.data.includes("token"))) {
+    // 不自动跳转
+  }
+}
+
+function handleTaskEnd(msg) {
+  const data = msg.data;
+  isRunning = false;
+  currentTaskId = null;
+  updateSendBtn(false);
+
+  // 更新最后一条 agent 消息的 meta
+  const msgs = chatArea.querySelectorAll(".msg-agent");
+  if (msgs.length > 0) {
+    const lastMsg = msgs[msgs.length - 1];
+    const meta = lastMsg.querySelector(".meta");
+    if (meta) {
+      const status = data.status === "completed" ? "✅ " : data.status === "cancelled" ? "⏹️ " : "❌ ";
+      const time = data.duration_ms ? ` (${Math.round(data.duration_ms/1000)}s)` : "";
+      meta.innerHTML = `<span>🤖 Claude</span><span style="color:var(--text2);font-size:11px">${status}${time}</span>`;
+    }
+  }
+
+  // 移除 thinking indicator
+  const thinking = chatArea.querySelector(".thinking");
+  if (thinking) thinking.remove();
+
+  if (data.status === "failed") {
+    addSystemMsg("❌ 任务执行失败", "error");
+  }
+
+  // 刷新历史
+  loadHistory();
+}
+
+// ── UI 辅助 ──────────────────────────────────────────────
+function addUserBubble(text, time) {
+  const div = document.createElement("div");
+  div.className = "msg msg-user";
+  const meta = document.createElement("div");
+  meta.className = "meta";
+  meta.textContent = time ? formatTime(time) : "刚刚";
+  const b = document.createElement("div");
+  b.className = "bubble";
+  b.textContent = text;
+  div.appendChild(b);
+  div.appendChild(meta);
+  chatArea.appendChild(div);
+
+  // 添加思考指示器
+  const thinking = document.createElement("div");
+  thinking.className = "thinking";
+  thinking.innerHTML = `
+    <span>🤖 Claude 思考中</span>
+    <span class="dots">
+      <span class="dot"></span>
+      <span class="dot"></span>
+      <span class="dot"></span>
+    </span>
+  `;
+  chatArea.appendChild(thinking);
+
+  chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+function addSystemMsg(text, type) {
+  const div = document.createElement("div");
+  div.className = "msg msg-system";
+  const b = document.createElement("div");
+  b.className = "bubble" + (type === "error" ? " error" : type === "success" ? " success" : "");
+  b.textContent = text;
+  div.appendChild(b);
+  chatArea.appendChild(div);
+  chatArea.scrollTop = chatArea.scrollHeight;
+}
+
+function formatTime(iso) {
+  try {
+    const d = new Date(iso);
+    return d.toLocaleTimeString("zh-CN", {hour:"2-digit",minute:"2-digit",second:"2-digit"});
+  } catch { return ""; }
+}
+
+// ── 发送 / 取消 ───────────────────────────────────────────
+function sendPrompt() {
+  if (!ws || ws.readyState !== WebSocket.OPEN) {
+    showToast("未连接服务器");
+    return;
+  }
+  if (isRunning) {
+    // 取消任务
+    ws.send(JSON.stringify({type: "cancel"}));
+    return;
+  }
+
+  const text = promptInput.value.trim();
+  if (!text) return;
+
+  promptInput.value = "";
+  autoResizeInput();
+
+  ws.send(JSON.stringify({
+    type: text.startsWith("/") ? "command" : "prompt",
+    data: text,
+  }));
+}
+
+function handleInputKeydown(e) {
+  if (e.key === "Enter" && !e.shiftKey) {
+    e.preventDefault();
+    sendPrompt();
+  }
+}
+
+function autoResizeInput() {
+  promptInput.style.height = "auto";
+  promptInput.style.height = Math.min(promptInput.scrollHeight, 120) + "px";
+}
+
+function updateSendBtn(running) {
+  if (running) {
+    sendBtn.textContent = "⏹";
+    sendBtn.className = "send-btn cancel-btn";
+    promptInput.disabled = true;
+    promptInput.placeholder = "任务执行中，点击 ⏹ 取消...";
+  } else {
+    sendBtn.textContent = "➤";
+    sendBtn.className = "send-btn";
+    promptInput.disabled = false;
+    promptInput.placeholder = "输入任务指令，回车发送…";
+  }
+}
+
+// ── 清空输出 ──────────────────────────────────────────────
+function clearOutput() {
+  const msgs = chatArea.querySelectorAll(".msg");
+  msgs.forEach(m => m.remove());
+  emptyState.style.display = "flex";
+  addSystemMsg("🗑️ 输出已清空");
+}
+
+// ── 历史记录 ──────────────────────────────────────────────
+function loadHistory() {
+  if (!TOKEN) return;
+  fetch(`/api/history?limit=100&token=${encodeURIComponent(TOKEN)}`)
+    .then(r => r.json())
+    .then(data => {
+      historyTasks = data.tasks || [];
+      renderHistory();
+    })
+    .catch(() => { /* 静默失败 */ });
+}
+
+function renderHistory() {
+  if (!historyTasks.length) {
+    historyList.innerHTML = '<p style="text-align:center;color:var(--text2);padding:40px;font-size:13px">暂无历史记录</p>';
+    return;
+  }
+
+  historyList.innerHTML = historyTasks.map(t => {
+    const status = t.status || "?";
+    const prompt = t.prompt ? t.prompt.slice(0, 80) : "(空)";
+    const time = t.created_at ? formatTime(t.created_at) : "";
+    const dur = t.duration_ms ? `${Math.round(t.duration_ms/1000)}s` : "";
+    return `
+      <div class="history-item" onclick="rerunTask('${escapeStr(t.prompt || "")}')">
+        <div class="h-status ${status}"></div>
+        <div class="h-info">
+          <div class="h-prompt">${escapeHtml(prompt)}</div>
+          <div class="h-meta">${time} ${dur ? "· " + dur : ""} · ${status}</div>
+        </div>
+        <button class="h-rerun" onclick="event.stopPropagation();rerunTask('${escapeStr(t.prompt || "")}')">▶ 重发</button>
+      </div>
+    `;
+  }).join("");
+}
+
+function rerunTask(prompt) {
+  toggleHistory(); // 关闭抽屉
+  if (prompt) {
+    promptInput.value = prompt;
+    promptInput.focus();
+    autoResizeInput();
+    showToast("已填入历史任务，点击发送");
+  }
+}
+
+function toggleHistory() {
+  const overlay = $("drawerOverlay");
+  const drawer = $("drawer");
+  const open = overlay.classList.contains("open");
+  overlay.classList.toggle("open");
+  drawer.classList.toggle("open");
+  if (!open) loadHistory();
+}
+
+function clearHistory() {
+  if (!confirm("确定清空所有任务历史？")) return;
+  fetch(`/api/history?token=${encodeURIComponent(TOKEN)}`, {method: "DELETE"})
+    .then(r => r.json())
+    .then(() => {
+      historyTasks = [];
+      renderHistory();
+      showToast("历史已清空");
+    })
+    .catch(() => showToast("清空失败"));
+}
+
+// ── 模型切换 ──────────────────────────────────────────────
+function renderModelList() {
+  const list = $("modelList");
+  list.innerHTML = AVAILABLE_MODELS.map(m => `
+    <button class="btn btn-outline btn-sm" style="text-align:left"
+            onclick="switchModel('${m}')">
+      ${m} ${m === modelBadge.textContent ? " ✓" : ""}
+    </button>
+  `).join("");
+}
+
+function showModelDialog() {
+  renderModelList();
+  $("modelOverlay").classList.add("open");
+  $("modelDrawer").classList.add("open");
+}
+
+function closeModelDialog() {
+  $("modelOverlay").classList.remove("open");
+  $("modelDrawer").classList.remove("open");
+}
+
+function switchModel(name) {
+  fetch(`/api/claude/model?token=${encodeURIComponent(TOKEN)}`, {
+    method: "POST",
+    headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({model: name}),
+  })
+    .then(r => r.json())
+    .then(data => {
+      if (data.status === "ok") {
+        modelBadge.textContent = name;
+        showToast(`✅ 模型已切换为 ${name}`);
+        closeModelDialog();
+        addSystemMsg(`🔄 模型已切换为: ${name}`);
+      } else {
+        showToast("❌ 切换失败: " + (data.detail || "未知错误"));
+      }
+    })
+    .catch(e => showToast("❌ 切换失败: " + e.message));
+}
+
+// ── Toast ────────────────────────────────────────────────
+function showToast(text) {
+  const toast = $("toast");
+  toast.textContent = text;
+  toast.classList.add("show");
+  clearTimeout(toast._hideTimer);
+  toast._hideTimer = setTimeout(() => toast.classList.remove("show"), 3000);
+}
+
+// ── 工具函数 ──────────────────────────────────────────────
+function escapeHtml(text) {
+  const d = document.createElement("div");
+  d.textContent = text;
+  return d.innerHTML;
+}
+
+function escapeStr(text) {
+  return text.replace(/'/g, "\\'").replace(/\n/g, "\\n").replace(/\r/g, "");
+}
+</script>
+</body>
+</html>
